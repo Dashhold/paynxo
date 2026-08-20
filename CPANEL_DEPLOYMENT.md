@@ -1,6 +1,6 @@
-# PayNXO cPanel Deployment - Step-by-Step Walkthrough 🎬
+# PayNXO cPanel Deployment - Complete Guide 🎬
 
-**Follow along like a video tutorial - with screenshots descriptions**
+**Step-by-step walkthrough for traditional OR Docker deployment**
 
 ---
 
@@ -11,8 +11,27 @@ This guide walks you through deploying PayNXO on cPanel hosting with:
 - ✅ Exact button names and locations
 - ✅ What you should see at each stage
 - ✅ Troubleshooting inline
+- 🐳 **BONUS:** Docker setup (optional, for VPS/Dedicated)
 
-**Time Required:** 30-40 minutes
+**Time Required:** 30-40 minutes (traditional) or 20-30 minutes (with Docker)
+
+---
+
+## 🤔 Docker or Traditional?
+
+### Traditional Setup (Recommended for Shared Hosting)
+- ✅ Works on any cPanel hosting
+- ✅ Step-by-step manual setup
+- ✅ Follow Parts 1-7 below
+
+### Docker Setup (For VPS/Dedicated Only)
+- ✅ Faster updates
+- ✅ Includes PostgreSQL in container
+- ✅ Follow Parts 1-3, skip to Docker section, then Part 7
+
+**Choose based on your hosting type:**
+- **Shared hosting?** Use traditional (Parts 1-7)
+- **VPS/Dedicated?** Use Docker (Parts 1-3, Docker section, Part 7)
 
 ---
 
@@ -87,12 +106,13 @@ This guide walks you through deploying PayNXO on cPanel hosting with:
 
 1. **Find "Databases" section** (scroll down)
    
-2. **Click "MySQL Database Wizard"**
+2. **Click "PostgreSQL Database Wizard"** (or "PostgreSQL Databases")
    - Icon looks like: 🗄️ cylinder/database
+   - **Note:** If you don't see PostgreSQL, contact your hosting provider
 
 3. **Step 1: Create Database**
    - Database Name: `paymentgateway`
-   - Click "Next Step"
+   - Click "Next Step" or "Create Database"
    - ✅ You'll see: "Added the database username_paymentgateway"
 
 4. **Step 2: Create User**
@@ -351,7 +371,7 @@ RewriteRule ^ index.html [L]
    GIN_MODE=release
 
    DB_HOST=localhost
-   DB_PORT=3306
+   DB_PORT=5432
    DB_NAME=username_paymentgateway
    DB_USER=username_paynxo
    DB_PASSWORD=your_database_password_here
@@ -562,6 +582,99 @@ RewriteRule ^(.*)$ http://localhost:8080/$1 [P,L]
 
 ---
 
+## 🐳 OPTIONAL: Using Docker (Advanced Users)
+
+**Should you use Docker?**
+- ✅ YES if: You have VPS/Dedicated with root access and want easier updates
+- ❌ NO if: You're on shared hosting or happy with traditional setup
+
+### Docker Benefits:
+- Easier to update (just rebuild container)
+- Consistent environment
+- Includes PostgreSQL in container
+
+### Docker Setup (Instead of Parts 4-6):
+
+**1. Create `docker-compose.yml` in your project root:**
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: paynxo-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paymentgateway
+      POSTGRES_USER: paynxo
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - paynxo-network
+
+  backend:
+    build: ./backend
+    container_name: paynxo-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: paymentgateway
+      DB_USER: paynxo
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: https://paynxo.com
+    depends_on:
+      - postgres
+    networks:
+      - paynxo-network
+
+volumes:
+  postgres_data:
+
+networks:
+  paynxo-network:
+```
+
+**2. Create `backend/Dockerfile`:**
+
+```dockerfile
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o paynxo-api ./cmd/server
+
+FROM alpine:latest
+WORKDIR /root/
+COPY --from=builder /app/paynxo-api .
+EXPOSE 8080
+CMD ["./paynxo-api"]
+```
+
+**3. Create `.env` file:**
+```env
+DB_PASSWORD=your_secure_password
+JWT_SECRET=your_jwt_secret
+```
+
+**4. Deploy:**
+```bash
+docker-compose up -d
+docker-compose ps  # Check status
+docker-compose logs -f  # View logs
+```
+
+**That's it!** Docker handles PostgreSQL, backend, and auto-restarts.
+
+---
+
 ## ✅ Part 7: Test Everything (5 min)
 
 ### 7.1 Test Frontend
@@ -647,13 +760,14 @@ pm2 logs paynxo-api
 
 ### "Database connection failed"
 ```bash
-# Test database connection
-mysql -h localhost -u username_paynxo -p username_paymentgateway
+# Test database connection (PostgreSQL)
+psql -h localhost -U username_paynxo -d username_paymentgateway
 
 # If fails, check:
 # 1. Database credentials in .env
 # 2. Database exists in cPanel
 # 3. User has privileges
+# 4. PostgreSQL is running: ps aux | grep postgres
 ```
 
 ### "CORS Error"
