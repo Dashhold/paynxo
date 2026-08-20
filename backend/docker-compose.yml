@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pgcs-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: pgcs
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgcs-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pgcs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pgcs-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: pgcs
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      PORT: "8080"
+      TOKEN_SECRET: ${TOKEN_SECRET:-dev-only-change-me-super-secret}
+      TOKEN_TTL: "24h"
+      # Root SuperAdmin bootstrap credentials. The SuperAdmin is the only
+      # account created at startup; it creates Admins via leasing. Override
+      # these in a .env file (or your secret store) for real deployments.
+      SUPERADMIN_USER_ID: ${SUPERADMIN_USER_ID:-superadmin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-ChangeMe!2026}
+    ports:
+      - "8080:8080"
+    restart: on-failure
+
+volumes:
+  pgcs-pgdata:
